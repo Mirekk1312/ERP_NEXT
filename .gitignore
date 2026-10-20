@@ -25,3 +25,6 @@ venv/
 
 # Logy
 *.log
+
+# Firemné dáta (údaje firiem, cenníky, exporty) – repo je verejné
+data/

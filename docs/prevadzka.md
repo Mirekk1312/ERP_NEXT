@@ -45,3 +45,13 @@ Zálohu sa oplatí spraviť vždy **pred aktualizáciou**.
 HRMS (`frappe/hrms`) alebo Frappe CRM (`frappe/crm`) nie sú v oficiálnom image `frappe/erpnext`.
 Treba postaviť vlastný image s `apps.json` (pozri frappe_docker `docs/` – custom apps), nahradiť ním
 image v `deploy/compose.yaml` a doinštalovať: `bench --site erp.local install-app hrms`.
+
+## Nastavenie firiem
+
+Firmy (IČO, DIČ, IČ DPH, adresy), číslovanie faktúr `<SKRATKA>-<ROK>-0001` a šablóny DPH 23 %
+nastavuje [setup/firmy.py](../setup/firmy.py) z lokálneho súboru `data/firmy.json` (nie je v gite).
+Skript sa dá spúšťať opakovane – po úprave údajov v JSON stačí:
+
+```powershell
+.\scripts\nas.ps1 py setup\firmy.py -Data data\firmy.json
+```

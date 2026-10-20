@@ -8,13 +8,15 @@
   .\scripts\nas.ps1 status            # stav kontajnerov stacku
   .\scripts\nas.ps1 logs create-site  # posledné riadky logu služby
   .\scripts\nas.ps1 exec backend "bench --site erp.local list-apps"
+  .\scripts\nas.ps1 py setup\firmy.py -Data data\firmy.json   # Python skript s frappe nad site
 #>
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet('info', 'deploy', 'status', 'logs', 'exec')]
+    [ValidateSet('info', 'deploy', 'status', 'logs', 'exec', 'py')]
     [string]$Action,
     [Parameter(Position = 1)] [string]$Service,
     [Parameter(Position = 2)] [string]$Command,
+    [string]$Data,
     [int]$Tail = 100
 )
 
@@ -104,5 +106,33 @@ $ComposeCmd ps -a
     'exec' {
         if (-not $Service -or -not $Command) { throw 'Použitie: exec <služba> "<príkaz>"' }
         Invoke-Nas "echo $(ConvertTo-B64 $Command) | base64 -d | $ComposeCmd exec -T $Service bash"
+    }
+    'py' {
+        # Spustí Python súbor z repa v backend kontajneri s pripojením na site a zavolá jeho run(data).
+        # Dáta (JSON, napr. z gitignorovaného data/) idú ako base64 v premennej DATA_B64.
+        if (-not $Service) { throw 'Použitie: py <súbor.py> [-Data <súbor.json>]' }
+        $pyPath = if ([IO.Path]::IsPathRooted($Service)) { $Service } else { Join-Path $Root $Service }
+        $pyCode = Get-Content $pyPath -Raw -Encoding UTF8
+        $dataB64 = if ($Data) { ConvertTo-B64 (Get-Content (Join-Path $Root $Data) -Raw -Encoding UTF8) } else { '' }
+        $site = if ($Cfg['SITE_NAME']) { $Cfg['SITE_NAME'] } else { 'erp.local' }
+        $runner = @"
+set -e
+cd /home/frappe/frappe-bench/sites
+echo $(ConvertTo-B64 $pyCode) | base64 -d > /tmp/job.py
+DATA_B64='$dataB64' SITE='$site' /home/frappe/frappe-bench/env/bin/python - <<'PY'
+import base64, json, os, runpy
+import frappe
+frappe.init(site=os.environ["SITE"], sites_path=".")
+frappe.connect()
+try:
+    raw = os.environ.get("DATA_B64")
+    data = json.loads(base64.b64decode(raw).decode("utf-8")) if raw else None
+    runpy.run_path("/tmp/job.py")["run"](data)
+finally:
+    frappe.destroy()
+    os.remove("/tmp/job.py")
+PY
+"@
+        Invoke-Nas "echo $(ConvertTo-B64 $runner) | base64 -d | $ComposeCmd exec -T backend bash"
     }
 }
