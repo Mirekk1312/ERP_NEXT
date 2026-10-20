@@ -21,18 +21,25 @@ Na NAS sa ukladá do `NAS_STACK_DIR` (predvolene `/volume1/docker/erpnext`): `co
 
 ### Prihlásenie kľúčom (z Windows PowerShell)
 
+Kľúč sa vkladá priamo do príkazu – pri posielaní cez rúru (`Get-Content … | ssh`) sa vo Windows
+nedá zadať heslo. Heslo sa pri písaní nezobrazuje, píše sa naslepo.
+
 ```powershell
-Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub | ssh <user>@192.168.1.120 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 755 ~ && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"
+$key = (Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub -Raw).Trim()
+ssh <user>@192.168.1.120 "mkdir -p ~/.ssh && echo '$key' >> ~/.ssh/authorized_keys && chmod 755 ~ && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys && echo HOTOVO"
 ssh <user>@192.168.1.120 "echo OK"    # už bez hesla
 ```
 
 ### Prístup k Dockeru bez sudo
 
-Na Synology má k `/var/run/docker.sock` prístup len root. Cez SSH (`ssh <user>@192.168.1.120`):
+Na Synology má k `/var/run/docker.sock` prístup len root. Cez `ssh -t <user>@192.168.1.120`
+(pod `sudo` nie je `synogroup` v PATH, preto plná cesta; `--add` len ak skupina ešte neexistuje):
 
 ```sh
-sudo synogroup --add docker <user>
+sudo /usr/syno/sbin/synogroup --add docker <user>       # skupina docker ešte neexistuje
+sudo /usr/syno/sbin/synogroup --memberadd docker <user> # skupina docker už existuje
 sudo chown root:docker /var/run/docker.sock
+ls -l /var/run/docker.sock                               # srw-rw---- root docker
 ```
 
 Vlastník socketu sa po reštarte NAS/Container Managera vráti na root, preto v DSM →
@@ -73,7 +80,8 @@ Skript nahrá `compose.yaml` a `.env` (len premenné stacku, práva 600) do `NAS
 stiahne imagy (prvýkrát niekoľko minút) a spustí `docker compose up -d`. Potom:
 
 1. `configurator` zapíše spoločnú konfiguráciu a skončí (exit 0).
-2. `create-site` vytvorí site `SITE_NAME` a nainštaluje ERPNext – trvá 5–15 minút.
+2. `create-site` vytvorí site `SITE_NAME` a nainštaluje ERPNext – trvá niekoľko minút
+   (na tomto NAS ~4 min).
 
 Priebeh:
 
@@ -96,7 +104,16 @@ Invoke-RestMethod http://192.168.1.120:8085/api/method/ping   # -> message: pong
 
 Otvor http://192.168.1.120:8085, prihlás sa ako `Administrator` s heslom `ADMIN_PASSWORD` a vyplň:
 
-- Jazyk: Slovenčina (OVERIŤ: úplnosť slovenského prekladu), krajina: Slovakia, mena: EUR, časové pásmo Europe/Bratislava.
-- Firma: AngelTax s.r.o., skratka, fiškálny rok.
-- Účtová osnova: OVERIŤ – slovenská účtová osnova nie je v ERPNext štandardne; zatiaľ ponechať
-  štandardnú a riešiť samostatne.
+- Jazyk: Slovenčina alebo English (OVERIŤ: úplnosť slovenského prekladu), krajina: Slovakia,
+  mena: EUR, časové pásmo Europe/Bratislava.
+- Používateľ: vlastný účet (e-mail) – dostane rolu System Manager; `Administrator` nechať ako núdzový účet.
+- Firma: ANGEL TAX s.r.o., skratka `ATAX`, fiškálny rok 1. 1. – 31. 12.
+- Účtová osnova: „Standard with Numbers“. Slovenská osnova v ERPNext štandardne nie je; keďže
+  účtovníctvo ostáva v MRP, netreba ju.
+- Voľba demo dát vytvorí navyše firmu „… (Demo)“ s ukážkovými dokladmi – pred ostrou prevádzkou
+  ju odstrániť (v ERPNext „Delete Demo Data“).
+
+## 6. Firmy a cenník
+
+Ďalšie firmy, skupinu, polia IČO/DIČ, číslovanie faktúr a DPH nastavia skripty zo `setup/`
+(dáta v `data/`, nie sú v gite) – pozri [prevadzka.md](prevadzka.md#nastavenie-firiem).

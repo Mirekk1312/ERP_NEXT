@@ -40,6 +40,18 @@ Zálohu sa oplatí spraviť vždy **pred aktualizáciou**.
 
 (`<DB_ROOT_PASSWORD>` nahradiť heslom z `.env`.)
 
+## Riešenie problémov
+
+- **`502 Bad Gateway` hneď po `deploy`** – backend sa ešte štartuje; počkať 15–30 s.
+  Ak sa v `deploy` zmení `configurator` (compose.yaml), reštartujú sa všetky ERPNext služby –
+  krátky výpadok.
+- **`permission denied … docker.sock`** (po reštarte NAS) – vlastník socketu sa vrátil na root;
+  skontrolovať úlohu v DSM Plánovači úloh ([instalacia.md](instalacia.md#prístup-k-dockeru-bez-sudo))
+  alebo ju v Plánovači spustiť ručne.
+- **Kontajnery ostali v stave `Created`** – `deploy` bol prerušený (napr. výstup cez
+  `Select-Object -First`, ktorý ukončí `ssh`); spustiť `.\scripts\nas.ps1 deploy` znova a nechať dobehnúť.
+- **Hlásenie SSH „not using a post-quantum key exchange“** – len upozornenie, `nas.ps1` ho skrýva.
+
 ## Doplnkové aplikácie (neskôr)
 
 HRMS (`frappe/hrms`) alebo Frappe CRM (`frappe/crm`) nie sú v oficiálnom image `frappe/erpnext`.
@@ -66,3 +78,24 @@ Skript sa dá spúšťať opakovane – po úprave údajov v JSON stačí:
   „Sales Invoice – číslo faktúry a VS“ (vyžaduje `server_script_enabled`, nastavuje `configurator`).
 - Číslo sa pridelí už pri uložení konceptu. **Koncept faktúry nemazať** – zmazaním vznikne
   v rade medzera; nepotrebnú faktúru radšej odoslať a zrušiť (Cancel), opravou vznikne `VF20260002-1`.
+
+### Skupina firiem
+
+Firmy ATAX, AD, UMK a ZAU sú zaradené pod skupinovú firmu **Skupina AngelTax** (`SKUP`), ktorá
+nefakturuje a slúži na súhrnné výkazy: **Consolidated Financial Statement** (filter Firma =
+Skupina AngelTax, výkaz Profit and Loss Statement – stĺpec za skupinu aj za každú firmu)
+a **Consolidated Trial Balance**. Štandardné predajné prehľady (Sales Register, Sales Analytics)
+vedia len jednu firmu naraz – súhrnný prehľad fakturácie za všetky firmy je ešte na doplnenie.
+
+## Služby a cenník
+
+Služby (Item, skupina „Služby“, neskladové) a predajný cenník (ceny bez DPH) nastavuje
+[setup/cennik.py](../setup/cennik.py) z JSON v `data/` (nie je v gite):
+
+```powershell
+.\scripts\nas.ps1 py setup\cennik.py -Data data\cennik_atax_2026.json
+```
+
+- Položka s `"price": null` sa založí bez ceny – cena sa zadá na faktúre.
+- Nový cenník (napr. od 2027) = nový JSON s iným `price_list` / `valid_from`; služby sa zdieľajú.
+- Stav: „Cenník ATAX 2026“ (35 služieb). Cenníky ďalších firiem a mesačné paušály klientov – na doplnenie.
