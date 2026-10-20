@@ -51,7 +51,13 @@ function ConvertTo-B64([string]$Text) {
 function Invoke-Nas([string]$Script) {
     $full = "export PATH=`$PATH:/usr/local/bin:/usr/bin; set -e; cd '$Dir' 2>/dev/null || true`n$Script"
     $remote = "echo $(ConvertTo-B64 $full) | base64 -d | bash"
-    & ssh -p $Port -o ConnectTimeout=10 "$($Cfg['NAS_USER'])@$($Cfg['NAS_HOST'])" $remote
+    # docker compose píše priebeh na stderr; vo Windows PowerShell 5.1 by to pri presmerovaní
+    # 2>&1 a ErrorActionPreference=Stop ukončilo skript, o chybe rozhoduje len exit kód.
+    $ErrorActionPreference = 'Continue'
+    & ssh -p $Port -o ConnectTimeout=10 "$($Cfg['NAS_USER'])@$($Cfg['NAS_HOST'])" $remote 2>&1 |
+        ForEach-Object { "$_" } |
+        Where-Object { $_ -notmatch 'post-quantum key exchange|store now, decrypt later|openssh\.com/pq\.html' }
+    $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) { throw "Príkaz na NAS skončil s kódom $LASTEXITCODE." }
 }
 
@@ -83,12 +89,13 @@ mkdir -p '$Dir' && cd '$Dir'
 echo $(ConvertTo-B64 $composeYaml) | base64 -d > compose.yaml
 umask 077
 echo $(ConvertTo-B64 "$stackEnv`n") | base64 -d > .env
+chmod 600 .env
 $ComposeCmd up -d --pull always --remove-orphans
 $ComposeCmd ps -a
 "@
     }
     'status' {
-        Invoke-Nas "$ComposeCmd ps -a --format 'table {{.Service}}\t{{.State}}\t{{.Status}}\t{{.Image}}'"
+        Invoke-Nas "$ComposeCmd ps -a"
     }
     'logs' {
         if (-not $Service) { throw 'Zadaj názov služby, napr. create-site.' }
