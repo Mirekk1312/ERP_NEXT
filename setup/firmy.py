@@ -1,12 +1,13 @@
 """Nastavenie firiem pre fakturáciu (idempotentné – dá sa spúšťať opakovane).
 
-Spúšťa sa cez:  .\\scripts\\nas.ps1 py setup\\firmy.py -Data data\\firmy.json
+Spúšťa sa cez:  .\scripts\nas.ps1 py setup\firmy.py -Data data\firmy.json
 
 - vlastné polia IČO / DIČ / Platca DPH na firme a zákazníkovi, Tax ID premenované na IČ DPH
 - skupinová firma (data/firmy.json → "skupina") na súhrnné výkazy, firmy sa zaradia pod ňu
 - firmy z data/firmy.json (existujúce sa aktualizujú, chýbajúce sa založia)
 - adresy firiem (sídlo, kancelária)
-- číslovanie faktúr podľa skratky firmy: ATAX-2026-0001, dobropisy ATAX-DOB-2026-0001
+- číslovanie faktúr a dobropisov: každá firma vlastný rad VF20260001 (ročne od 0001);
+  interný názov dokladu ATAX-VF20260001, na faktúre pole Číslo faktúry + Variabilný symbol
 - DPH 23 % pre platcov; staré šablóny VAT 20 % / 10 % z ERPNext sa vypnú
 """
 
@@ -15,8 +16,20 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.custom.doctype.property_setter.property_setter import make_property_setter
 
 DPH_SADZBA = 23
-FAKTURA_SERIE = ".ABBR.-.YYYY.-.####"
-DOBROPIS_SERIE = ".ABBR.-DOB-.YYYY.-.####"
+# Počítadlo frappe je podľa prefixu (ATAX-VF2026), teda zvlášť pre každú firmu a rok.
+# Rok (.YYYY.) sa v ERPNext berie z dátumu vystavenia (posting_date).
+FAKTURA_SERIE = ".ABBR.-VF.YYYY.####"
+
+# Číslo faktúry = interný názov bez skratky firmy (ATAX-VF20260001 -> VF20260001),
+# variabilný symbol = len číslice (20260001). Opravný doklad po zrušení: VF20260001-1.
+CISLO_FAKTURY_SCRIPT = """
+if doc.name and not doc.name.startswith("new-"):
+    abbr = frappe.db.get_value("Company", doc.company, "abbr")
+    cislo = doc.name[len(abbr) + 1:] if doc.name.startswith(abbr + "-") else doc.name
+    if doc.cislo_faktury != cislo:
+        doc.cislo_faktury = cislo
+        doc.variabilny_symbol = "".join([c for c in cislo.split("-")[0] if c.isdigit()])
+"""
 
 
 def vlastne_polia():
@@ -32,6 +45,10 @@ def vlastne_polia():
                 dict(fieldname="dic", label="DIČ", fieldtype="Data", insert_after="ico"),
             ],
             "Sales Invoice": [
+                dict(fieldname="cislo_faktury", label="Číslo faktúry", fieldtype="Data", insert_after="naming_series",
+                     read_only=1, no_copy=1, bold=1, in_list_view=1, in_standard_filter=1, search_index=1),
+                dict(fieldname="variabilny_symbol", label="Variabilný symbol", fieldtype="Data",
+                     insert_after="cislo_faktury", read_only=1, no_copy=1),
                 dict(fieldname="customer_ico", label="IČO odberateľa", fieldtype="Data",
                      fetch_from="customer.ico", read_only=1, insert_after="tax_id"),
                 dict(fieldname="customer_dic", label="DIČ odberateľa", fieldtype="Data",
@@ -45,9 +62,20 @@ def vlastne_polia():
 
 
 def ciselne_rady():
-    options = "\n".join([FAKTURA_SERIE, DOBROPIS_SERIE, "ACC-SINV-.YYYY.-", "ACC-SINV-RET-.YYYY.-"])
+    options = "\n".join([FAKTURA_SERIE, "ACC-SINV-.YYYY.-", "ACC-SINV-RET-.YYYY.-"])
     make_property_setter("Sales Invoice", "naming_series", "options", options, "Text", validate_fields_for_doctype=False)
     make_property_setter("Sales Invoice", "naming_series", "default", FAKTURA_SERIE, "Text", validate_fields_for_doctype=False)
+    # Hľadanie a zobrazenie faktúr podľa čísla faktúry
+    make_property_setter("Sales Invoice", None, "search_fields", "cislo_faktury,customer,customer_name",
+                         "Data", for_doctype=True, validate_fields_for_doctype=False)
+
+    if not frappe.conf.get("server_script_enabled"):
+        frappe.throw("Serverové skripty nie sú zapnuté (server_script_enabled v common_site_config).")
+    name = "Sales Invoice – číslo faktúry a VS"
+    script = frappe.get_doc("Server Script", name) if frappe.db.exists("Server Script", name) else frappe.new_doc("Server Script")
+    script.update(dict(__newname=name, name=name, script_type="DocType Event", reference_doctype="Sales Invoice",
+                       doctype_event="Before Save", script=CISLO_FAKTURY_SCRIPT.strip(), disabled=0))
+    script.save()
 
 
 def nova_firma(name, abbr, is_group=0):

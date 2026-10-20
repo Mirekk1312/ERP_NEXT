@@ -48,10 +48,21 @@ image v `deploy/compose.yaml` a doinštalovať: `bench --site erp.local install-
 
 ## Nastavenie firiem
 
-Firmy (IČO, DIČ, IČ DPH, adresy), číslovanie faktúr `<SKRATKA>-<ROK>-0001` a šablóny DPH 23 %
+Firmy (IČO, DIČ, IČ DPH, adresy), skupinu firiem, číslovanie faktúr a šablóny DPH 23 %
 nastavuje [setup/firmy.py](../setup/firmy.py) z lokálneho súboru `data/firmy.json` (nie je v gite).
 Skript sa dá spúšťať opakovane – po úprave údajov v JSON stačí:
 
 ```powershell
 .\scripts\nas.ps1 py setup\firmy.py -Data data\firmy.json
 ```
+
+### Číslovanie faktúr
+
+- Každá firma má vlastný rad `VF<ROK><4 číslice>` (faktúry aj dobropisy), od 1. 1. znova od 0001;
+  rok sa berie z dátumu vystavenia.
+- V ERPNext musí byť názov dokladu jedinečný v celom systéme, preto je interný názov
+  `<SKRATKA>-VF20260001` (napr. `ATAX-VF20260001`). Na faktúre sa tlačí pole **Číslo faktúry**
+  (`VF20260001`) a **Variabilný symbol** (len číslice, `20260001`) – vypĺňa ich Server Script
+  „Sales Invoice – číslo faktúry a VS“ (vyžaduje `server_script_enabled`, nastavuje `configurator`).
+- Číslo sa pridelí už pri uložení konceptu. **Koncept faktúry nemazať** – zmazaním vznikne
+  v rade medzera; nepotrebnú faktúru radšej odoslať a zrušiť (Cancel), opravou vznikne `VF20260002-1`.
