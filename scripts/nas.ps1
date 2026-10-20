@@ -48,15 +48,17 @@ function ConvertTo-B64([string]$Text) {
     [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($Text -replace "`r`n", "`n")))
 }
 
-# Spustí skript v bash na NAS. Skript ide ako base64 v argumente, aby sa vyhlo problémom
-# s úvodzovkami a kódovaním stdin vo Windows PowerShell 5.1.
+# Spustí skript v bash na NAS. Skript ide cez stdin ako base64 (čisté ASCII – bez problémov
+# s úvodzovkami a kódovaním vo Windows PowerShell 5.1, bez limitu dĺžky príkazového riadku).
+# Na NAS sa uloží do dočasného súboru, aby príkazy v skripte nečítali zvyšok skriptu zo stdin.
 function Invoke-Nas([string]$Script) {
     $full = "export PATH=`$PATH:/usr/local/bin:/usr/bin; set -e; cd '$Dir' 2>/dev/null || true`n$Script"
-    $remote = "echo $(ConvertTo-B64 $full) | base64 -d | bash"
+    # tr odfiltruje všetko okrem base64 znakov (PowerShell môže pridať BOM a CRLF).
+    $remote = 'f=$(mktemp); tr -cd "A-Za-z0-9+/=" | base64 -d > "$f" || { rm -f "$f"; exit 97; }; bash "$f" < /dev/null; rc=$?; rm -f "$f"; exit $rc'
     # docker compose píše priebeh na stderr; vo Windows PowerShell 5.1 by to pri presmerovaní
     # 2>&1 a ErrorActionPreference=Stop ukončilo skript, o chybe rozhoduje len exit kód.
     $ErrorActionPreference = 'Continue'
-    & ssh -p $Port -o ConnectTimeout=10 "$($Cfg['NAS_USER'])@$($Cfg['NAS_HOST'])" $remote 2>&1 |
+    (ConvertTo-B64 $full) | & ssh -p $Port -o ConnectTimeout=10 "$($Cfg['NAS_USER'])@$($Cfg['NAS_HOST'])" $remote 2>&1 |
         ForEach-Object { "$_" } |
         Where-Object { $_ -notmatch 'post-quantum key exchange|store now, decrypt later|openssh\.com/pq\.html' }
     $ErrorActionPreference = 'Stop'
