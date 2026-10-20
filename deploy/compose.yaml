@@ -1,6 +1,6 @@
-# ERPNext stack pre Portainer (Synology NAS).
-# Vychádza z oficiálneho frappe_docker/pwd.yml; heslá a verzia idú z env premenných stacku
-# (pozri deploy/.env.example).
+# ERPNext stack pre Synology NAS (docker compose cez SSH, pozri scripts/nas.ps1).
+# Vychádza z oficiálneho frappe_docker/pwd.yml; heslá a verzia idú z .env vedľa tohto súboru
+# na NAS (pozri deploy/.env.example).
 
 x-erpnext-image: &erpnext-image
   image: frappe/erpnext:${ERPNEXT_VERSION:-v16.50.0}

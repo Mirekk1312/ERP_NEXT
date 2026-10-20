@@ -14,4 +14,4 @@ $site = (Get-Content (Join-Path $Root '.env') -Encoding UTF8 |
     ForEach-Object { ($_ -split '=', 2)[1].Trim() }) | Select-Object -First 1
 if (-not $site) { $site = 'erp.local' }
 
-& (Join-Path $PSScriptRoot 'portainer.ps1') exec backend "bench --site $site backup --with-files && ls -lh sites/$site/private/backups | tail -n 5"
+& (Join-Path $PSScriptRoot 'nas.ps1') exec backend "bench --site $site backup --with-files && ls -lh sites/$site/private/backups | tail -n 5"
