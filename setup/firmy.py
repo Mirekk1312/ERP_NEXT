@@ -3,6 +3,7 @@
 Spúšťa sa cez:  .\\scripts\\nas.ps1 py setup\\firmy.py -Data data\\firmy.json
 
 - vlastné polia IČO / DIČ / Platca DPH na firme a zákazníkovi, Tax ID premenované na IČ DPH
+- skupinová firma (data/firmy.json → "skupina") na súhrnné výkazy, firmy sa zaradia pod ňu
 - firmy z data/firmy.json (existujúce sa aktualizujú, chýbajúce sa založia)
 - adresy firiem (sídlo, kancelária)
 - číslovanie faktúr podľa skratky firmy: ATAX-2026-0001, dobropisy ATAX-DOB-2026-0001
@@ -49,24 +50,39 @@ def ciselne_rady():
     make_property_setter("Sales Invoice", "naming_series", "default", FAKTURA_SERIE, "Text", validate_fields_for_doctype=False)
 
 
-def firma(f):
+def nova_firma(name, abbr, is_group=0):
+    return frappe.get_doc(
+        dict(
+            doctype="Company",
+            company_name=name,
+            abbr=abbr,
+            is_group=is_group,
+            country="Slovakia",
+            default_currency="EUR",
+            create_chart_of_accounts_based_on="Standard Template",
+            chart_of_accounts="Standard with Numbers",
+        )
+    ).insert()
+
+
+def skupina(s):
+    """Skupinová firma na súhrnné vyhodnocovanie (konsolidované výkazy). Nefakturuje."""
+    if not frappe.db.exists("Company", s["name"]):
+        nova_firma(s["name"], s["abbr"], is_group=1)
+        print(f"  založená skupina {s['name']}")
+    dph(frappe.get_doc("Company", s["name"]))  # skupina nefakturuje – len vypne šablóny VAT z ERPNext
+    return s["name"]
+
+
+def firma(f, parent=None):
     if frappe.db.exists("Company", f["name"]):
         doc = frappe.get_doc("Company", f["name"])
         if doc.abbr != f["abbr"]:
             frappe.throw(f"Firma {f['name']} má skratku {doc.abbr}, v dátach je {f['abbr']}.")
     else:
-        doc = frappe.get_doc(
-            dict(
-                doctype="Company",
-                company_name=f["name"],
-                abbr=f["abbr"],
-                country="Slovakia",
-                default_currency="EUR",
-                create_chart_of_accounts_based_on="Standard Template",
-                chart_of_accounts="Standard with Numbers",
-            )
-        ).insert()
+        doc = nova_firma(f["name"], f["abbr"])
         print(f"  založená firma {doc.name}")
+    doc.parent_company = parent
     doc.ico = f["ico"]
     doc.dic = f["dic"]
     doc.platca_dph = f["platca_dph"]
@@ -153,18 +169,20 @@ def dph(company):
 def run(data):
     vlastne_polia()
     ciselne_rady()
+    parent = skupina(data["skupina"]) if data.get("skupina") else None
     for f in data["firmy"]:
         print(f"Firma {f['name']} ({f['abbr']})")
-        company = firma(f)
+        company = firma(f, parent)
         adresy(f)
         dph(company)
     frappe.db.commit()
 
     for c in frappe.get_all(
-        "Company", fields=["name", "abbr", "ico", "dic", "tax_id", "platca_dph"], order_by="name"
+        "Company", fields=["name", "abbr", "ico", "dic", "tax_id", "platca_dph", "parent_company"], order_by="lft"
     ):
+        label = ("└ " if c.parent_company else "") + c.name
         templates = frappe.get_all(
             "Sales Taxes and Charges Template", {"company": c.name, "disabled": 0}, pluck="name"
         )
-        print(f"  {c.abbr:6} {c.name:40} IČO {c.ico or '-':9} DIČ {c.dic or '-':11} "
+        print(f"  {c.abbr:6} {label:40} IČO {c.ico or '-':9} DIČ {c.dic or '-':11} "
               f"IČ DPH {c.tax_id or '-':13} DPH: {', '.join(templates) or '-'}")
